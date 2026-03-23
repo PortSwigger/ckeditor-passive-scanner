@@ -57,7 +57,7 @@ Details include:
 4. Replace the example class with `CKEditorPassiveScanner.java` (keep package name or adjust imports)  
 5. Build:
 
-```bash
+
 # macOS / Linux
 ./gradlew build
 
@@ -80,7 +80,7 @@ https://mvnrepository.com/artifact/net.portswigger.burp.extensions/montoya-api/2
 Place montoya-api-2025.12.jar in the same folder as your source (or in a libs/ subfolder)
 Compile & package:
 
-Bash# Compile
+# Compile
 javac -d build -cp "burpsuite_pro_v2025.12.5.jar;montoya-api-2025.12.jar" CKEditorPassiveScanner.java
 
 # Create JAR
