@@ -1,104 +1,104 @@
 # CKEditor Passive Scanner (Burp Suite Extension)
 
 ![Burp Suite](https://img.shields.io/badge/Burp%20Suite-Professional%20%2F%20Community-orange)
-![API](https://img.shields.io/badge/API-Montoya%20(v1.0)-blue)
+![API](https://img.shields.io/badge/API-Montoya%20(v2025.12+)-blue)
 ![Java](https://img.shields.io/badge/Java-17%2B-red)
 
-A lightweight, passive scanning extension for **Burp Suite** designed to detect, classify, and report CKEditor installations (versions 4.x and 5.x) and their plugins. 
+A lightweight **passive scanning** extension for **Burp Suite** that detects, classifies and reports **CKEditor** installations (v4.x and v5.x) along with discovered plugins — all without sending any active payloads.
 
-Built using the modern **Montoya API**, this extension helps security researchers identify potentially vulnerable WYSIWYG editors without sending active scan payloads.
+Built with the modern **Montoya API** — ideal for identifying potentially vulnerable WYSIWYG editors during reconnaissance and manual testing.
 
 ---
-![Alt Text](https://github.com/code5ecure/CKEditor_Passive_scanner/blob/main/image_1.png)
+![Screenshot](https://github.com/code5ecure/CKEditor_Passive_scanner/blob/main/image_1.png)
 
 ## 🚀 Key Features
 
-* **Passive Detection:** Identifies CKEditor via HTTP response bodies (JavaScript, CSS, HTML markers, and `CKEDITOR.version` variables).
-* **Version Fingerprinting:** Extracts exact version numbers for CKEditor 4 and detects CKEditor 5 build types (Classic, Inline, Balloon).
-* **Plugin Discovery:** Passively enumerates installed plugins (e.g., file uploaders, KCFinder) by analyzing resource paths.
-* **Smart Issue Reporting:** Automatically generates **Information** severity issues in the Burp Dashboard with detailed evidence.
+- **Passive Detection** — identifies CKEditor through response bodies (JS, CSS, HTML markers, `CKEDITOR.version`)
+- **Version Fingerprinting** — extracts exact version for CKEditor 4 and detects CKEditor 5 editor types (Classic, Inline, Balloon, Decoupled)
+- **Plugin Enumeration** — passively discovers loaded plugins (including file uploaders, image processors, etc.)
+- **Base Path Calculation** — intelligently determines the most likely installation base path
+- **Native Burp Integration** — reports **Information** severity issues directly in the Burp Dashboard / Issue Activity
+- **No active traffic** — 100% passive, respects scope & scanner settings
 
 ## 📥 Installation
 
-1.  **Download:** Get the latest JAR file from the [Releases](../../releases) page.
-2.  **Load in Burp:**
-    * Open **Burp Suite**.
-    * Go to **Extensions** -> **Installed**.
-    * Click **Add**.
-    * Select **Java** and choose the `CKEditorPassiveScanner.jar` file.
-3.  **Verify:** You should see a new tab labeled **CKEditor Scanner** in the Burp UI.
+1. Download the latest compiled JAR from the [**Releases**](../../releases) page  
+2. In Burp Suite:
+   - Go to **Extensions** → **Installed**
+   - Click **Add**
+   - Choose **Java**
+   - Select `CKEditorPassiveScanner.jar`
+
+You should see the message in **Extension** → **Output**:
+
+CKEditor Passive Scanner loaded.
+
 
 ## 🛠 Usage
 
-1.  **Browse:** Simply browse your target application through Burp Proxy.
-2.  **Monitor:** Check the **CKEditor Scanner** tab. It will populate a table whenever CKEditor assets are detected.
-3.  **Analyze:**
-    * Click a row to view the request/response details.
-    * Right-click a row to **Send to Repeater**.
-    * Check the **Target > Site Map** or **Dashboard** for formal issues labeled "CKEditor Detected".
+1. Proxy your target traffic through Burp  
+2. Browse the application normally  
+3. Look for **Information** issues in **Dashboard** or **Target → Site map** labeled  
+   **"CKEditor Detected (CKEditor 4)"** / **"CKEditor Detected (CKEditor 5)"** etc.
 
-## 🔍 How It Works
-
-The extension implements the `HttpHandler` interface to passively inspect `HttpResponseReceived` events. It uses regex signatures to find:
-* `CKEDITOR.version` variables.
-* Specific CSS/JS file naming conventions.
-* `data-ckeditor-*` HTML attributes.
-* Directory structures typical of CKEditor deployments (e.g., `/assets/plugins/`).
-
-*No payloads are sent to the server. All detection is performed on traffic that is already flowing through the proxy.*
+Details include:
+- Detected type & version
+- Signature used
+- Calculated base path
+- Discovered plugins (if any)
 
 ## 🏗 Build from Source
 
-Requirements:
-* Java JDK 17+
-* Maven or Gradle
+### Recommended: Use the official starter project (easiest & most compatible)
+
+1. In Burp Suite → **Extensions** → **APIs** tab  
+2. Click **Download starter project**  
+3. Unzip the downloaded archive  
+4. Replace the example class with `CKEditorPassiveScanner.java` (keep package name or adjust imports)  
+5. Build:
 
 ```bash
-git clone [https://github.com/yourusername/ckeditor-passive-scanner.git](https://github.com/yourusername/ckeditor-passive-scanner.git)
-cd ckeditor-passive-scanner
-# If using Gradle
+# macOS / Linux
 ./gradlew build
-# The jar will be in build/libs/
 
-if u are in windows:
+# Windows
+gradlew.bat build
 
-just execute this:
-javac -d build -cp burpsuite_pro_v2025.10.4.jar CKEditorPassiveScanner.java
-jar cf CKEditorPassiveScanner.jar -C build .
 
+The final JAR will be in build/libs/.
+Alternative: Manual compilation with javac (no Gradle/Maven)
+Requirements:
+
+Java JDK 17 or higher
+Burp Suite Professional / Community JAR (e.g. burpsuite_pro_v2025.12.5.jar)
+Matching Montoya API JAR
+
+
+Download the appropriate montoya-api version from Maven Central
+Recommended version for Burp 2025.12.5 → 2025.12
+https://mvnrepository.com/artifact/net.portswigger.burp.extensions/montoya-api/2025.12→ Click jar and save as montoya-api-2025.12.jar
+Place montoya-api-2025.12.jar in the same folder as your source (or in a libs/ subfolder)
+Compile & package:
+
+Bash# Compile
+javac -d build -cp "burpsuite_pro_v2025.12.5.jar;montoya-api-2025.12.jar" CKEditorPassiveScanner.java
+
+# Create JAR
+jar cvf CKEditorPassiveScanner.jar -C build .
+Note: Use ; (semicolon) as classpath separator on Windows
+Use : (colon) on macOS / Linux
+Bash# macOS / Linux example
+javac -d build -cp "burpsuite_pro_v2025.12.5.jar:montoya-api-2025.12.jar" CKEditorPassiveScanner.java
+jar cvf CKEditorPassiveScanner.jar -C build .
 🤝 Contributing
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
-
+Pull requests are welcome.
+For major changes, please open an issue first to discuss what you would like to change.
 🗺️ Roadmap & Future Works
-We are looking to expand the capabilities of this extension beyond CKEditor to become a comprehensive editor auditing suite.
 
-1. Multi-Editor Support
-Wysiwyg Expansion: Add passive detection signatures for other popular editors:
+Support for additional WYSIWYG editors (TinyMCE, Froala, Summernote, Quill, etc.)
+Automatic discovery of known sensitive endpoints (upload handlers, connectors, config files)
+Version-to-CVE mapping and advisory links
+Optional active checks for misconfigurations (future active scan module)
 
-TinyMCE (Version detection and plugin mapping)
-
-Froala (License check and versioning)
-
-Summernote
-
-Quill / Trix
-
-2. Interesting Path Discovery
-Automatic Endpoint Mapping: Automatically identify hidden management or upload endpoints:
-
-Detecting kcfinder/browse.php
-
-Detecting ckfinder/connector
-
-Locating custom file-browser integration paths.
-
-3. Automatic Security Auditing
-Configuration Analysis: Move from passive detection to active security checks:
-
-Check for config.js exposure.
-
-Test for default/weak configurations in file uploaders.
-
-Automated version-based vulnerability (CVE) matching.
 📄 License
 MIT
