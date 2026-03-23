@@ -9,7 +9,7 @@ A lightweight **passive scanning** extension for **Burp Suite** that detects, cl
 Built with the modern **Montoya API** — ideal for identifying potentially vulnerable WYSIWYG editors during reconnaissance and manual testing.
 
 ---
-![Screenshot](https://github.com/code5ecure/CKEditor_Passive_scanner/blob/main/image_1.png)
+
 
 ## 🚀 Key Features
 
