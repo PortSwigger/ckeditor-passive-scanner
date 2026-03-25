@@ -72,33 +72,40 @@ Requirements:
 Java JDK 17 or higher
 Burp Suite Professional / Community JAR (e.g. burpsuite_pro_v2025.12.5.jar)
 Matching Montoya API JAR
-
+<br>
 
 Download the appropriate montoya-api version from Maven Central
 Recommended version for Burp 2025.12.5 → 2025.12
+<br>
 https://mvnrepository.com/artifact/net.portswigger.burp.extensions/montoya-api/2025.12→ Click jar and save as montoya-api-2025.12.jar
+<br>
+<br>
 Place montoya-api-2025.12.jar in the same folder as your source (or in a libs/ subfolder)
+<br>
 Compile & package:
-
+<br>
+<br>
 # Compile
 javac -d build -cp "burpsuite_pro_v2025.12.5.jar;montoya-api-2025.12.jar" CKEditorPassiveScanner.java
-
+<br>
 # Create JAR
 jar cvf CKEditorPassiveScanner.jar -C build .
-Note: Use ; (semicolon) as classpath separator on Windows
-Use : (colon) on macOS / Linux
-Bash# macOS / Linux example
+<br>
+<br>
+# Bash macOS / Linux example
 javac -d build -cp "burpsuite_pro_v2025.12.5.jar:montoya-api-2025.12.jar" CKEditorPassiveScanner.java
+<br>
 jar cvf CKEditorPassiveScanner.jar -C build .
+<br>
 🤝 Contributing
 Pull requests are welcome.
 For major changes, please open an issue first to discuss what you would like to change.
 🗺️ Roadmap & Future Works
-
+<br>
 Support for additional WYSIWYG editors (TinyMCE, Froala, Summernote, Quill, etc.)
 Automatic discovery of known sensitive endpoints (upload handlers, connectors, config files)
 Version-to-CVE mapping and advisory links
 Optional active checks for misconfigurations (future active scan module)
-
+<br>
 📄 License
 MIT
