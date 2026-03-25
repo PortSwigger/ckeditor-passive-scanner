@@ -94,27 +94,24 @@ jar cvf CKEditorPassiveScanner.jar -C build .
 javac -d build -cp "burpsuite_pro_v2025.12.5.jar:montoya-api-2025.12.jar" CKEditorPassiveScanner.java
 <br>
 jar cvf CKEditorPassiveScanner.jar -C build .
-<br>
 
 ## Changelog
 1. removing the need for the custom UI tab.
 2. Moving the detection logic into a dedicated scan check.
-<br>
+
 more changelog detail on Changelog.md
 <br>
 ### 🤝 Contributing
-<br>
+
 Pull requests are welcome.
 <br>
 For major changes, please open an issue first to discuss what you would like to change.
-<br>
+
 ## 🗺️ Roadmap & Future Works
-<br>
+
 Support for additional WYSIWYG editors (TinyMCE, Froala, Summernote, Quill, etc.)<br>
 Automatic discovery of known sensitive endpoints (upload handlers, connectors, config files)
 <br>
 Version-to-CVE mapping and advisory links
-
-<br>
 📄 License
 MIT
