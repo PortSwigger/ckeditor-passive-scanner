@@ -1,307 +1,367 @@
-/* ================= Design & Developed By Masoud Zivari(code5ecure)============ */
-/* ================= Passive CKEditor4 & CKEditor5 Detection (Final) ============ */
+	/* ================= Design & Developed By Masoud Zivari(code5ecure)============ */
+	/* ================= Passive CKEditor4 & CKEditor5 Detection (Final + Fixed) ==== */
+	package burp;
+	import burp.api.montoya.BurpExtension;
+	import burp.api.montoya.MontoyaApi;
+	import burp.api.montoya.scanner.AuditResult;
+	import burp.api.montoya.scanner.scancheck.PassiveScanCheck;
+	import burp.api.montoya.scanner.scancheck.ScanCheckType;
+	import burp.api.montoya.http.message.HttpRequestResponse;
+	import burp.api.montoya.scanner.audit.issues.AuditIssue;
+	import static burp.api.montoya.scanner.audit.issues.AuditIssueConfidence.CERTAIN;
+	import static burp.api.montoya.scanner.audit.issues.AuditIssueSeverity.INFORMATION;
 
-package burp;
+	import java.util.*;
+	import java.util.concurrent.ConcurrentHashMap;
+	import java.util.regex.Matcher;
+	import java.util.regex.Pattern;
+	public class CKEditorPassiveScanner implements BurpExtension {
+		private MontoyaApi api;
+		private static final int MAX_PATHS_PER_HOST = 100;
+		private final ConcurrentHashMap<String, TreeSet<String>> ckeditorPathsPerHost =
+				new ConcurrentHashMap<>();
+		private final ConcurrentHashMap<String, TreeSet<String>> pluginsPerHost =
+				new ConcurrentHashMap<>();
+		
+		private final ConcurrentHashMap<String, Integer> lastPluginCountPerHost =
+				new ConcurrentHashMap<>();
+		private final ConcurrentHashMap<String, String> lastBasePathPerHost =
+				new ConcurrentHashMap<>();
 
-import burp.api.montoya.BurpExtension;
-import burp.api.montoya.MontoyaApi;
-import burp.api.montoya.http.handler.HttpHandler; 
-import burp.api.montoya.http.handler.HttpRequestToBeSent;
-import burp.api.montoya.http.handler.HttpResponseReceived;
-import burp.api.montoya.http.handler.RequestToBeSentAction;
-import burp.api.montoya.http.handler.ResponseReceivedAction;
-import burp.api.montoya.http.message.HttpRequestResponse;
-import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.scanner.audit.issues.AuditIssue;
-import static burp.api.montoya.scanner.audit.issues.AuditIssueConfidence.CERTAIN;
-import static burp.api.montoya.scanner.audit.issues.AuditIssueSeverity.INFORMATION;
-import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.TableRowSorter;
-import java.awt.*;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+		private static final Pattern CKEDITOR4_VERSION =
+				Pattern.compile("CKEDITOR\\.version\\s*=\\s*['\"]([0-9.]+)['\"]");
+		private static final Pattern CKEDITOR5_MARKER =
+				Pattern.compile("ClassicEditor|InlineEditor|BalloonEditor|DecoupledEditor");
+		private static final Pattern CKEDITOR_JS_CSS =
+				Pattern.compile("([^\"'\\s>]*ckeditor[^\"'\\s>]*\\.(js|css))", Pattern.CASE_INSENSITIVE);
+		private static final Pattern HTML_TEXTAREA =
+				Pattern.compile("<textarea[^>]+class=['\"]ckeditor['\"]", Pattern.CASE_INSENSITIVE);
+		private static final Pattern CKEDITOR_KEYWORD =
+				Pattern.compile("\\bckeditor\\b", Pattern.CASE_INSENSITIVE);
+		private static final Pattern DATA_CKEDITOR_PATH =
+				Pattern.compile("data-[^=]*ckeditor[^=]*=['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE);
+		private static final Pattern PLUGIN_PATTERN =
+				Pattern.compile("plugins/([a-zA-Z0-9_-]+)/");
+		private static final Pattern CONFIG_PLUGINS_PATTERN =
+				Pattern.compile("(extraPlugins|removePlugins|plugins)\\s*[:=]\\s*['\"]([^'\"]+)['\"]?", Pattern.CASE_INSENSITIVE);
+		private static final Pattern CKEDITOR_ANY_REFERENCE =
+				Pattern.compile("['\"]([^'\"]*ckeditor[^'\"]*?)['\"]", Pattern.CASE_INSENSITIVE);
+
+		private class CKEditorPassiveCheck implements PassiveScanCheck {
+			private final MontoyaApi api;
+			CKEditorPassiveCheck(MontoyaApi api) {
+				this.api = api;
+			}
+			@Override
+			public String checkName() {
+				return "CKEditor Passive Detection";
+			}
+			@Override
+			public AuditResult doCheck(HttpRequestResponse baseRequestResponse) {
+				String host = baseRequestResponse.request().httpService().host();
+				String reqPath = baseRequestResponse.request().pathWithoutQuery();
+
+				String normReqPath = normalizePath(reqPath);
+				if (!normReqPath.isEmpty()) {
+					addCkPath(host, normReqPath);
+				}
+
+			   if (!baseRequestResponse.hasResponse() || baseRequestResponse.response().statusCode() != 200) {
+					return AuditResult.auditResult();
+				}
+	if (ckeditorPathsPerHost.size() > 1000) {
+		ckeditorPathsPerHost.clear();
+		pluginsPerHost.clear();
+		lastPluginCountPerHost.clear();
+		lastBasePathPerHost.clear();
+	}
+	   
+	
 
 
+			   String body;
 
-public class CKEditorPassiveScanner implements BurpExtension, HttpHandler {
+	try {
+		body = baseRequestResponse.response().bodyToString();
 
-    private MontoyaApi api;
-    private static final int MAX_ENTRIES = 2000;
+		if (body.length() > 2_000_000) {
+			api.logging().logToOutput("CKEditor scanner: Body too large on "
+					+ baseRequestResponse.request().url());
+			return AuditResult.auditResult();
+		}
 
-    private final Map<String, Set<String>> observedCkeditorPaths = new ConcurrentHashMap<>();
+	} catch (Exception e) {
+		api.logging().logToError("CKEditor scanner: Body parsing error on "
+				+ baseRequestResponse.request().url() + " → " + e.getMessage());
+		return AuditResult.auditResult();
+	}
 
-    private final Map<String, Set<String>> pluginInfoPerUrl =
-            Collections.synchronizedMap(new LinkedHashMap<>() {
-                protected boolean removeEldestEntry(Map.Entry<String, Set<String>> eldest) {
-                    return size() > MAX_ENTRIES;
-                }
-            });
+				String ckType = "CKEditor (Generic)";
+				String version = "Unknown";
+				String signature = "ckeditor keyword";
 
-    private final Map<String, HttpRequest> requestPerUrl =
-            Collections.synchronizedMap(new LinkedHashMap<>() {
-                protected boolean removeEldestEntry(Map.Entry<String, HttpRequest> eldest) {
-                    return size() > MAX_ENTRIES;
-                }
-            });
+				String lowerBody = body.toLowerCase();
+				String lowerPath = reqPath.toLowerCase();
 
-    private DefaultTableModel detectionModel;
-    private JTextArea detailsArea;
+				if (!lowerBody.contains("ckeditor") && !lowerPath.contains("ckeditor")) {
+					return AuditResult.auditResult();
+				}
 
-    private static final Pattern CKEDITOR4_VERSION =
-            Pattern.compile("CKEDITOR\\.version\\s*=\\s*['\"]([0-9.]+)['\"]");
+				Matcher v4 = CKEDITOR4_VERSION.matcher(body);
+				
+				if (v4.find()) {
+					version = v4.group(1);
+					ckType = "CKEditor 4";
+					signature = "CKEDITOR.version = '" + version + "'";
+				}
+				if (CKEDITOR5_MARKER.matcher(body).find()) {
+					ckType = "CKEditor 5";
+					signature = "ClassicEditor / InlineEditor / ... marker";
+					version = "5.x";
+				}
+				if (HTML_TEXTAREA.matcher(body).find()) {
+					ckType = "CKEditor (textarea class)";
+					signature = "<textarea class=\"ckeditor\"";
+				}
 
-    private static final Pattern CKEDITOR5_MARKER =
-            Pattern.compile("ClassicEditor|InlineEditor|BalloonEditor|DecoupledEditor");
+				boolean hasCk = CKEDITOR_KEYWORD.matcher(body).find() ||
+								CKEDITOR_JS_CSS.matcher(body).find() ||
+								DATA_CKEDITOR_PATH.matcher(body).find() ||
+								lowerPath.contains("ckeditor");
 
-    private static final Pattern CKEDITOR_JS_CSS =
-            Pattern.compile("([^\"'\\s>]*ckeditor[^\"'\\s>]*\\.(js|css))", Pattern.CASE_INSENSITIVE);
+				if (!hasCk) {
+					return AuditResult.auditResult();
+				}
 
-    private static final Pattern HTML_TEXTAREA =
-            Pattern.compile("<textarea[^>]+class=['\"]ckeditor['\"]", Pattern.CASE_INSENSITIVE);
+				Matcher jsCssMatcher = CKEDITOR_JS_CSS.matcher(body);
+				while (jsCssMatcher.find()) {
+					String fullPath = resolveRelativePath(reqPath, jsCssMatcher.group(1));
+					addCkPath(host, fullPath);
+				}
+				Matcher dataPathMatcher = DATA_CKEDITOR_PATH.matcher(body);
+				while (dataPathMatcher.find()) {
+					String fullPath = resolveRelativePath(reqPath, dataPathMatcher.group(1));
+					addCkPath(host, fullPath);
+				}
+				Matcher anyRefMatcher = CKEDITOR_ANY_REFERENCE.matcher(body);
+				while (anyRefMatcher.find()) {
+					String raw = anyRefMatcher.group(1);
+					String lowerRaw = raw.toLowerCase();
+					if (lowerRaw.contains("ckeditor") &&
+						(raw.contains("/") || raw.endsWith(".js") || raw.endsWith(".css") || raw.startsWith("/"))) {
+						String fullPath = resolveRelativePath(reqPath, raw);
+						addCkPath(host, fullPath);
+					}
+				}
 
-    private static final Pattern CKEDITOR_KEYWORD =
-            Pattern.compile("\\bckeditor\\b", Pattern.CASE_INSENSITIVE);
+				String requestPathLower = reqPath.toLowerCase();
+			   if (requestPathLower.endsWith("config.js")) {
+		Set<String> configPlugins = extractPluginsFromConfig(body);
 
-    private static final Pattern DATA_CKEDITOR_PATH =
-            Pattern.compile("data-[^=]*ckeditor[^=]*=['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE);
+		pluginsPerHost
+				.computeIfAbsent(host, k -> new TreeSet<>())
+				.addAll(configPlugins);
 
-    private static final Pattern PLUGIN_PATTERN =
-            Pattern.compile("plugins/([a-zA-Z0-9_-]+)/");
+		
+		TreeSet<String> pluginSet = pluginsPerHost.get(host);
+		if (pluginSet != null && pluginSet.size() > 100) {
+			Iterator<String> it = pluginSet.iterator();
+			while (pluginSet.size() > 100 && it.hasNext()) {
+				it.next();
+				it.remove();
+			}
+		}
+	}
 
-    @Override
-    public void initialize(MontoyaApi api) {
-        this.api = api;
-        api.extension().setName("CKEditor Passive Scanner 4.0 (Final)");
+				Set<String> plugins = new TreeSet<>();
+				Matcher pluginM = PLUGIN_PATTERN.matcher(body);
+				while (pluginM.find()) {
+					plugins.add(pluginM.group(1));
+				}
+				TreeSet<String> hostPlugins = pluginsPerHost.get(host);
+				if (hostPlugins != null) {
+					plugins.addAll(hostPlugins);
+				}
 
-        detectionModel = new DefaultTableModel(
-                new Object[]{"Host", "Type", "Version", "Signature", "URL", "Base Path"}, 0) {
-            public boolean isCellEditable(int r, int c) { return false; }
-        };
+				String basePath = calculateBasePath(host);
 
-        JTable table = new JTable(detectionModel);
-        table.setRowSorter(new TableRowSorter<>(detectionModel));
+			   
+				int prevPluginCount = lastPluginCountPerHost.getOrDefault(host, 0);
+				String prevBasePath = lastBasePathPerHost.getOrDefault(host, "Unknown");
+				boolean hasNewEvidence = (plugins.size() > prevPluginCount) || !basePath.equals(prevBasePath);
 
-        table.getSelectionModel().addListSelectionListener(e -> {
-            if (e.getValueIsAdjusting()) return;
-            int row = table.getSelectedRow();
-            if (row == -1) return;
+				if (!hasNewEvidence) {
+					return AuditResult.auditResult();  
+				}
 
-            int modelRow = table.convertRowIndexToModel(row);
-            String url = detectionModel.getValueAt(modelRow, 4).toString();
-            HttpRequest req = requestPerUrl.get(url);
+			   
+				lastPluginCountPerHost.put(host, plugins.size());
+				lastBasePathPerHost.put(host, basePath);
 
-            StringBuilder sb = new StringBuilder();
-            sb.append("URL: ").append(url).append("\n");
-            sb.append("Host: ").append(detectionModel.getValueAt(modelRow, 0)).append("\n");
-            sb.append("Type: ").append(detectionModel.getValueAt(modelRow, 1)).append("\n");
-            sb.append("Version: ").append(detectionModel.getValueAt(modelRow, 2)).append("\n");
-            sb.append("Signature: ").append(detectionModel.getValueAt(modelRow, 3)).append("\n");
-            sb.append("Base Path: ").append(detectionModel.getValueAt(modelRow, 5)).append("\n\n");
+				List<String> evidences = new ArrayList<>();
+	int evidenceCounter = 1;
 
-            Set<String> plugins = pluginInfoPerUrl.get(url);
-            if (plugins != null && !plugins.isEmpty()) {
-                sb.append("Plugins:\n");
-                plugins.forEach(p -> sb.append(" - ").append(p).append("\n"));
-                sb.append("\n");
-            }
+	evidences.add("Evidence #" + (evidenceCounter++) + ": Current response – CKEditor type: " + ckType 
+				  + " | Version: " + version + " | Signature: " + signature);
 
-            if (req != null) {
-                sb.append("Request:\n");
-                sb.append(req.toString());
-            }
+	if (!plugins.isEmpty()) {
+		evidences.add("Evidence #" + (evidenceCounter++) + ": Plugins detected in this response/config.js: " 
+					  + String.join(", ", plugins));
+	}
 
-            detailsArea.setText(sb.toString());
-            detailsArea.setCaretPosition(0);
-        });
+	if (!basePath.equals("Unknown")) {
+		evidences.add("Evidence #" + (evidenceCounter++) + ": Base Path calculated from collected paths: " + basePath);
+	}
 
-        JPopupMenu popup = new JPopupMenu();
-        JMenuItem sendToRepeater = new JMenuItem("Send to Repeater");
-        popup.add(sendToRepeater);
+	if (requestPathLower.endsWith("config.js")) {
+		evidences.add("Evidence #" + (evidenceCounter++) + ": This request is config.js – extra plugins extracted directly from it.");
+	}
 
-        sendToRepeater.addActionListener(e -> {
-            int row = table.getSelectedRow();
-            if (row == -1) return;
-            int modelRow = table.convertRowIndexToModel(row);
-            String url = detectionModel.getValueAt(modelRow, 4).toString();
-            HttpRequest req = requestPerUrl.get(url);
-            if (req != null) {
-                api.repeater().sendToRepeater(req);
-            }
-        });
+	
+	String detailHtml = "<b>CKEditor Detected</b><br><br>" +
+			"<ul>" +
+			"<li><b>Type:</b> " + ckType + "</li>" +
+			"<li><b>Version:</b> " + version + "</li>" +
+			"<li><b>Signature:</b> " + signature + "</li>" +
+			"<li><b>Base Path:</b> " + basePath + "</li>";
 
-        table.setComponentPopupMenu(popup);
+	detailHtml += "<li><b>Collected Evidences (" + (evidenceCounter-1) + " items):</b><ul>";
+	for (String ev : evidences) {
+		String safeEv = ev.replace("<", "&lt;").replace(">", "&gt;");
+		detailHtml += "<li>" + safeEv + "</li>";
+	}
+	detailHtml += "</ul></li>";
 
-        JTextField filterField = new JTextField(20);
-        filterField.getDocument().addDocumentListener(new DocumentListener() {
-            private void update() {
-                String t = filterField.getText();
-                ((TableRowSorter<?>) table.getRowSorter())
-                        .setRowFilter(t.isEmpty() ? null :
-                                RowFilter.regexFilter("(?i)" + Pattern.quote(t)));
-            }
-            public void insertUpdate(DocumentEvent e) { update(); }
-            public void removeUpdate(DocumentEvent e) { update(); }
-            public void changedUpdate(DocumentEvent e) { update(); }
-        });
+	if (!plugins.isEmpty()) {
+		detailHtml += "<li><b>All Plugins (from config.js):</b> " + String.join(", ", plugins) + "</li>";
+	} else {
+		detailHtml += "<li><b>Plugins:</b> None detected</li>";
+	}
+	detailHtml += "</ul>";
 
-        JButton clearButton = new JButton("Clear");
-        clearButton.addActionListener(e -> {
-            detectionModel.setRowCount(0);
-            observedCkeditorPaths.clear();
-            pluginInfoPerUrl.clear();
-            requestPerUrl.clear();
-            detailsArea.setText("");
-        });
+				String background = "CKEditor is a popular WYSIWYG editor. Older versions or misconfigured plugins may allow XSS or file upload vulnerabilities.";
+				String remediation = "The presence of CKEditor may increase the application's attack surface depending on configuration. Ensure it is up to date and only necessary plugins are enabled.";
 
-        detailsArea = new JTextArea();
-        detailsArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        detailsArea.setEditable(false);
+				AuditIssue issue = AuditIssue.auditIssue(
+						"CKEditor Detected",
+						detailHtml,
+						remediation,
+						baseRequestResponse.request().url(),
+						INFORMATION,
+						CERTAIN,
+						background,
+						null,
+						null,
+						baseRequestResponse
+				);
+				return AuditResult.auditResult(issue);
+			}
+		}
 
-        JSplitPane split = new JSplitPane(
-                JSplitPane.VERTICAL_SPLIT,
-                new JScrollPane(table),
-                new JScrollPane(detailsArea)
-        );
-        split.setResizeWeight(0.65);
+		@Override
+		public void initialize(MontoyaApi api) {
+			this.api = api;
+			api.extension().setName("CKEditor Passive Scanner V2.0");
+			api.scanner().registerPassiveScanCheck(
+					new CKEditorPassiveCheck(api),
+					ScanCheckType.PER_REQUEST
+			);
+			
+			
+		}
 
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        top.add(new JLabel("Filter:"));
-        top.add(filterField);
-        top.add(clearButton);
+		private String calculateBasePath(String host) {
+			TreeSet<String> paths = ckeditorPathsPerHost.get(host);
+			if (paths == null || paths.isEmpty()) {
+				return "Unknown";
+			}
+			String first = paths.first();
+			String last = paths.last();
+			int minLen = Math.min(first.length(), last.length());
+			int commonLen = 0;
+			for (int i = 0; i < minLen; i++) {
+				if (first.charAt(i) == last.charAt(i)) {
+					commonLen++;
+				} else {
+					break;
+				}
+			}
+			String commonPrefix = first.substring(0, commonLen);
+			int lastSlash = commonPrefix.lastIndexOf('/');
+			return (lastSlash >= 0) ? commonPrefix.substring(0, lastSlash + 1) : commonPrefix + "/";
+		}
 
-        JPanel main = new JPanel(new BorderLayout());
-        main.add(top, BorderLayout.NORTH);
-        main.add(split, BorderLayout.CENTER);
+		private String normalizePath(String raw) {
+			if (raw == null) return "";
+			String p = raw;
+			if (p.startsWith("http")) {
+				int idx = p.indexOf("/", p.indexOf("//") + 2);
+				if (idx != -1) p = p.substring(idx);
+			}
+			p = p.split("[?#]")[0];
+			return p;
+		}
 
-        api.userInterface().registerSuiteTab("CKEditor Scanner", main);
-        api.http().registerHttpHandler(this);
-    }
+		private String resolveRelativePath(String requestPath, String relativePath) {
+			if (relativePath == null || relativePath.trim().isEmpty()) return "";
+			String rel = normalizePath(relativePath);
+			if (rel.startsWith("/")) {
+				return rel;
+			}
+			String dir = requestPath.isEmpty() ? "/" : requestPath;
+			if (!dir.endsWith("/")) {
+				int last = dir.lastIndexOf('/');
+				if (last >= 0) {
+					dir = dir.substring(0, last + 1);
+				} else {
+					dir = "/";
+				}
+			}
+			if (dir.endsWith("/") && rel.startsWith("/")) {
+				rel = rel.substring(1);
+			}
+			return dir + rel;
+		}
 
-    @Override
-    public RequestToBeSentAction handleHttpRequestToBeSent(HttpRequestToBeSent req) {
-        if (CKEDITOR_KEYWORD.matcher(req.path()).find()) {
-            recordPath(req.httpService().host(), req.path());
-        }
-        return RequestToBeSentAction.continueWith(req);
-    }
+		private void addCkPath(String host, String path) {
+			if (path.isEmpty()) return;
+			String lower = path.toLowerCase();
+			if (!lower.contains("ckeditor") && !lower.endsWith("config.js") && !lower.endsWith("ckeditor.js")) {
+				return;
+			}
+			ckeditorPathsPerHost
+					.computeIfAbsent(host, k -> new TreeSet<>())
+					.add(path);
+			TreeSet<String> set = ckeditorPathsPerHost.get(host);
+			if (set != null && set.size() > MAX_PATHS_PER_HOST) {
+				Iterator<String> it = set.iterator();
+				while (set.size() > MAX_PATHS_PER_HOST && it.hasNext()) {
+					it.next();
+					it.remove();
+				}
+			}
+		}
 
-    @Override
-    public ResponseReceivedAction handleHttpResponseReceived(HttpResponseReceived res) {
-        if (res.body() == null) return ResponseReceivedAction.continueWith(res);
-
-        String body = new String(res.body().getBytes(), StandardCharsets.UTF_8);
-        HttpRequest req = res.initiatingRequest();
-        String host = req.httpService().host();
-        String url = req.url();
-
-        Matcher jsCss = CKEDITOR_JS_CSS.matcher(body);
-        while (jsCss.find()) recordPath(host, jsCss.group(1));
-
-        Matcher dataPath = DATA_CKEDITOR_PATH.matcher(body);
-        while (dataPath.find()) recordPath(host, dataPath.group(1));
-
-        if (CKEDITOR4_VERSION.matcher(body).find())
-            add(host, "CKEditor 4", "Detected", "CKEDITOR.version", url, res);
-
-        if (CKEDITOR5_MARKER.matcher(body).find())
-            add(host, "CKEditor 5", "Detected", "CKEditor 5 marker", url, res);
-
-        if (HTML_TEXTAREA.matcher(body).find())
-            add(host, "CKEditor (HTML)", "Unknown", "textarea class=ckeditor", url, res);
-
-        Matcher plugin = PLUGIN_PATTERN.matcher(body);
-        while (plugin.find()) {
-            pluginInfoPerUrl.computeIfAbsent(url, u -> new TreeSet<>())
-                    .add(plugin.group(1));
-        }
-
-        if (CKEDITOR_KEYWORD.matcher(body).find())
-            add(host, "CKEditor (Generic)", "Unknown", "ckeditor keyword present", url, res);
-
-        return ResponseReceivedAction.continueWith(res);
-    }
-
-    private void recordPath(String host, String raw) {
-        if (raw == null) return;
-
-        String p = raw;
-        if (p.startsWith("http")) {
-            int i = p.indexOf("/", p.indexOf("//") + 2);
-            if (i != -1) p = p.substring(i);
-        }
-        p = p.split("[?#]")[0];
-
-        if (!p.toLowerCase().contains("ckeditor")) return;
-
-        observedCkeditorPaths
-                .computeIfAbsent(host, h -> ConcurrentHashMap.newKeySet())
-                .add(p);
-    }
-
-    private String calculateBasePath(String host) {
-        Set<String> paths = observedCkeditorPaths.get(host);
-        if (paths == null || paths.isEmpty()) return "Unknown";
-
-        for (String p : paths) {
-            int idx = p.toLowerCase().indexOf("/ckeditor");
-            if (idx >= 0) {
-                return p.substring(0, idx + "/ckeditor".length()) + "/";
-            }
-        }
-        return "Unknown";
-    }
-
-    private void add(String host, String type, String version,
-                     String sig, String url, HttpResponseReceived res) {
-        
-        HttpRequest req = res.initiatingRequest();
-        
-        SwingUtilities.invokeLater(() -> {
-            detectionModel.addRow(new Object[]{
-                    host, type, version, sig, url, calculateBasePath(host)
-            });
-            requestPerUrl.put(url, req);
-        });
-
-       
-        String basePath = calculateBasePath(host);
-        String detail = "<b>CKEditor Detected</b><br><br>" +
-                "<ul>" +
-                "<li><b>Type:</b> " + type + "</li>" +
-                "<li><b>Version:</b> " + version + "</li>" +
-                "<li><b>Signature:</b> " + sig + "</li>" +
-                "<li><b>Base Path:</b> " + basePath + "</li>" +
-                "</ul>";
-        
-        String remediation = "Ensure that the CKEditor installation is updated to the latest secure version. " +
-                    "Review the configuration of any file upload plugins (e.g., CKFinder, KCFinder) to prevent unrestricted file uploads.";
-
-        String background = "CKEditor is a popular open-source WYSIWYG text editor. While generally secure, older versions or misconfigured plugins " +
-                    "can introduce vulnerabilities such as Cross-Site Scripting (XSS) or Unrestricted File Uploads.";
-
-       
-        
-        AuditIssue issue = AuditIssue.auditIssue(
-            "CKEditor Detected",
-            detail,
-            remediation,
-            url,
-            INFORMATION,
-            CERTAIN,
-            background,
-            null,
-            INFORMATION,
-            HttpRequestResponse.httpRequestResponse(req, res)
-        );
-
-        api.siteMap().add(issue);
-    }
-}
-
-// This is CKEDITOR 4 &5  passive scanner by Masoud Zivari(code5ecure).
+		private Set<String> extractPluginsFromConfig(String body) {
+			Set<String> plugs = new TreeSet<>();
+			if (body == null || body.isEmpty()) return plugs;
+			Matcher m = CONFIG_PLUGINS_PATTERN.matcher(body);
+			while (m.find()) {
+				String list = m.group(2);
+				if (list != null && !list.isEmpty()) {
+					for (String p : list.split("[,\\s;]+")) {
+						String trimmed = p.trim().replaceAll("^['\"]+|['\"]+$", "");
+						if (!trimmed.isEmpty() && trimmed.length() > 1) {
+							plugs.add(trimmed);
+						}
+					}
+				}
+			}
+			Matcher pm = PLUGIN_PATTERN.matcher(body);
+			while (pm.find()) {
+				plugs.add(pm.group(1));
+			}
+			return plugs;
+		}
+	}
+	// This is CKEDITOR 4 &5 passive scanner by Masoud Zivari(code5ecure).
