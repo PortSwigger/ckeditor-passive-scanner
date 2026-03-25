@@ -77,7 +77,9 @@ Matching Montoya API JAR
 Download the appropriate montoya-api version from Maven Central
 Recommended version for Burp 2025.12.5 → 2025.12
 <br>
-https://mvnrepository.com/artifact/net.portswigger.burp.extensions/montoya-api/2025.12→ Click jar and save as montoya-api-2025.12.jar
+https://mvnrepository.com/artifact/net.portswigger.burp.extensions/montoya-api/2025.12
+<br>
+Click jar and save as montoya-api-2025.12.jar
 <br>
 <br>
 Place montoya-api-2025.12.jar in the same folder as your source (or in a libs/ subfolder)
@@ -93,19 +95,31 @@ jar cvf CKEditorPassiveScanner.jar -C build .
 <br>
 <br>
 # Bash macOS / Linux example
+<br>
 javac -d build -cp "burpsuite_pro_v2025.12.5.jar:montoya-api-2025.12.jar" CKEditorPassiveScanner.java
 <br>
 jar cvf CKEditorPassiveScanner.jar -C build .
 <br>
+
+## Changelog
+1. removing the need for the custom UI tab.
+2. Moving the detection logic into a dedicated scan check.
+<br>
+more changelog detail on Changelog.md
+<br>
 🤝 Contributing
+<br>
 Pull requests are welcome.
+<br>
 For major changes, please open an issue first to discuss what you would like to change.
+<br>
 🗺️ Roadmap & Future Works
 <br>
-Support for additional WYSIWYG editors (TinyMCE, Froala, Summernote, Quill, etc.)
+Support for additional WYSIWYG editors (TinyMCE, Froala, Summernote, Quill, etc.)<br>
 Automatic discovery of known sensitive endpoints (upload handlers, connectors, config files)
+<br>
 Version-to-CVE mapping and advisory links
-Optional active checks for misconfigurations (future active scan module)
+
 <br>
 📄 License
 MIT
