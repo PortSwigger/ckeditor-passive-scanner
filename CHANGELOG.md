@@ -7,5 +7,6 @@
 
 ### Fixed
 - Scope checking (no more scanning out-of-scope traffic)
+- Removed Custom UI tab
 - AuditIssue API compatibility for Montoya 2026
 - Minor performance and logging improvements
