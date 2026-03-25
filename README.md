@@ -80,12 +80,7 @@ Recommended version for Burp 2025.12.5 → 2025.12
 https://mvnrepository.com/artifact/net.portswigger.burp.extensions/montoya-api/2025.12
 <br>
 Click jar and save as montoya-api-2025.12.jar
-<br>
-<br>
-Place montoya-api-2025.12.jar in the same folder as your source (or in a libs/ subfolder)
-<br>
-Compile & package:
-<br>
+ ,then Place montoya-api-2025.12.jar in the same folder as your source (or in a libs/ subfolder)
 <br>
 # Compile
 javac -d build -cp "burpsuite_pro_v2025.12.5.jar;montoya-api-2025.12.jar" CKEditorPassiveScanner.java
@@ -94,7 +89,7 @@ javac -d build -cp "burpsuite_pro_v2025.12.5.jar;montoya-api-2025.12.jar" CKEdit
 jar cvf CKEditorPassiveScanner.jar -C build .
 <br>
 <br>
-# Bash macOS / Linux example
+# macOS / Linux example
 <br>
 javac -d build -cp "burpsuite_pro_v2025.12.5.jar:montoya-api-2025.12.jar" CKEditorPassiveScanner.java
 <br>
