@@ -1,5 +1,5 @@
 	/* ================= Design & Developed By Masoud Zivari(code5ecure)============ */
-	/* ================= Passive CKEditor4 & CKEditor5 Detection (Final + Fixed) ==== */
+	/* ================= Passive CKEditor4 & CKEditor5 Detection (Version 3.0) ==== */
 	package burp;
 	import burp.api.montoya.BurpExtension;
 	import burp.api.montoya.MontoyaApi;
@@ -13,14 +13,15 @@
 
 	import java.util.*;
 	import java.util.concurrent.ConcurrentHashMap;
+	import java.util.concurrent.ConcurrentSkipListSet;
 	import java.util.regex.Matcher;
 	import java.util.regex.Pattern;
 	public class CKEditorPassiveScanner implements BurpExtension {
 		private MontoyaApi api;
 		private static final int MAX_PATHS_PER_HOST = 100;
-		private final ConcurrentHashMap<String, TreeSet<String>> ckeditorPathsPerHost =
+		private final ConcurrentHashMap<String, ConcurrentSkipListSet<String>> ckeditorPathsPerHost =
 				new ConcurrentHashMap<>();
-		private final ConcurrentHashMap<String, TreeSet<String>> pluginsPerHost =
+		private final ConcurrentHashMap<String, ConcurrentSkipListSet<String>> pluginsPerHost =
 				new ConcurrentHashMap<>();
 		
 		private final ConcurrentHashMap<String, Integer> lastPluginCountPerHost =
@@ -69,6 +70,21 @@
 			   if (!baseRequestResponse.hasResponse() || baseRequestResponse.response().statusCode() != 200) {
 					return AuditResult.auditResult();
 				}
+
+				// --- Content-Type guard: skip binary assets before touching the body at all ---
+				String contentType = baseRequestResponse.response().headerValue("Content-Type");
+				if (contentType == null) {
+					return AuditResult.auditResult();
+				}
+				String ctLower = contentType.toLowerCase();
+				boolean isTextLike = ctLower.contains("text/")
+						|| ctLower.contains("application/javascript")
+						|| ctLower.contains("application/x-javascript")
+						|| ctLower.contains("application/json");
+				if (!isTextLike) {
+					return AuditResult.auditResult();
+				}
+
 	if (ckeditorPathsPerHost.size() > 1000) {
 		ckeditorPathsPerHost.clear();
 		pluginsPerHost.clear();
@@ -159,11 +175,11 @@
 		Set<String> configPlugins = extractPluginsFromConfig(body);
 
 		pluginsPerHost
-				.computeIfAbsent(host, k -> new TreeSet<>())
+				.computeIfAbsent(host, k -> new ConcurrentSkipListSet<>())
 				.addAll(configPlugins);
 
 		
-		TreeSet<String> pluginSet = pluginsPerHost.get(host);
+		ConcurrentSkipListSet<String> pluginSet = pluginsPerHost.get(host);
 		if (pluginSet != null && pluginSet.size() > 100) {
 			Iterator<String> it = pluginSet.iterator();
 			while (pluginSet.size() > 100 && it.hasNext()) {
@@ -178,7 +194,7 @@
 				while (pluginM.find()) {
 					plugins.add(pluginM.group(1));
 				}
-				TreeSet<String> hostPlugins = pluginsPerHost.get(host);
+				ConcurrentSkipListSet<String> hostPlugins = pluginsPerHost.get(host);
 				if (hostPlugins != null) {
 					plugins.addAll(hostPlugins);
 				}
@@ -220,20 +236,24 @@
 	
 	String detailHtml = "<b>CKEditor Detected</b><br><br>" +
 			"<ul>" +
-			"<li><b>Type:</b> " + ckType + "</li>" +
-			"<li><b>Version:</b> " + version + "</li>" +
-			"<li><b>Signature:</b> " + signature + "</li>" +
-			"<li><b>Base Path:</b> " + basePath + "</li>";
+			"<li><b>Type:</b> " + escapeHtml(ckType) + "</li>" +
+			"<li><b>Version:</b> " + escapeHtml(version) + "</li>" +
+			"<li><b>Signature:</b> " + escapeHtml(signature) + "</li>" +
+			"<li><b>Base Path:</b> " + escapeHtml(basePath) + "</li>";
 
 	detailHtml += "<li><b>Collected Evidences (" + (evidenceCounter-1) + " items):</b><ul>";
 	for (String ev : evidences) {
-		String safeEv = ev.replace("<", "&lt;").replace(">", "&gt;");
+		String safeEv = escapeHtml(ev);
 		detailHtml += "<li>" + safeEv + "</li>";
 	}
 	detailHtml += "</ul></li>";
 
 	if (!plugins.isEmpty()) {
-		detailHtml += "<li><b>All Plugins (from config.js):</b> " + String.join(", ", plugins) + "</li>";
+		List<String> safePlugins = new ArrayList<>();
+		for (String p : plugins) {
+			safePlugins.add(escapeHtml(p));
+		}
+		detailHtml += "<li><b>All Plugins (from config.js):</b> " + String.join(", ", safePlugins) + "</li>";
 	} else {
 		detailHtml += "<li><b>Plugins:</b> None detected</li>";
 	}
@@ -271,7 +291,7 @@
 		}
 
 		private String calculateBasePath(String host) {
-			TreeSet<String> paths = ckeditorPathsPerHost.get(host);
+			ConcurrentSkipListSet<String> paths = ckeditorPathsPerHost.get(host);
 			if (paths == null || paths.isEmpty()) {
 				return "Unknown";
 			}
@@ -330,9 +350,9 @@
 				return;
 			}
 			ckeditorPathsPerHost
-					.computeIfAbsent(host, k -> new TreeSet<>())
+					.computeIfAbsent(host, k -> new ConcurrentSkipListSet<>())
 					.add(path);
-			TreeSet<String> set = ckeditorPathsPerHost.get(host);
+			ConcurrentSkipListSet<String> set = ckeditorPathsPerHost.get(host);
 			if (set != null && set.size() > MAX_PATHS_PER_HOST) {
 				Iterator<String> it = set.iterator();
 				while (set.size() > MAX_PATHS_PER_HOST && it.hasNext()) {
@@ -362,6 +382,20 @@
 				plugs.add(pm.group(1));
 			}
 			return plugs;
+		}
+
+		/**
+		 * Escapes HTTP-derived strings before they are embedded into the Burp
+		 * Advisory panel's HTML detail field, preventing HTML/markup injection
+		 * from attacker-controlled response content (e.g. plugin names, paths,
+		 * version strings).
+		 */
+		private String escapeHtml(String s) {
+			if (s == null) return "";
+			return s.replace("&", "&amp;")
+					.replace("<", "&lt;")
+					.replace(">", "&gt;")
+					.replace("\"", "&quot;");
 		}
 	}
 	// This is CKEDITOR 4 &5 passive scanner by Masoud Zivari(code5ecure).
