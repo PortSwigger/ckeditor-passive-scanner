@@ -1,3 +1,11 @@
+## V3.0 - 2026-07-01
+Key improvements:
+• Early Content-Type guard before bodyToString() to skip binary files
+• Switched to ConcurrentSkipListSet for full thread-safety
+• Proper HTML escaping to prevent injection in Audit Issue panel
+• Body size limits and better memory management
+• Improved plugin extraction and path calculation
+
 ## v2.0 - 2026-03-22
 ### Added
 - Full Scope awareness (only scans in-scope URLs)
