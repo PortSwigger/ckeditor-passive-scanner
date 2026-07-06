@@ -10,4 +10,4 @@ Author: Masoud Zivari (code5ecure)
 ShortDescription: Passively detects CKEditor instances, versions, and plugins in traffic.
 EntryPoint: target_repo-4.0.jar
 BuildCommand: ./gradlew build
-SupportedProducts: Pro
+SupportedProducts: Pro, DAST
