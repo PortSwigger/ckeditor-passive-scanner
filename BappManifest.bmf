@@ -3,7 +3,7 @@ ExtensionType: 1
 Name: CKEditor Passive Scanner
 RepoName: ckeditor-passive-scanner
 ScreenVersion: 3.0.0
-SerialVersion: 1
+SerialVersion: 2
 MinPlatformVersion: 23
 ProOnly: True
 Author: Masoud Zivari (code5ecure)
